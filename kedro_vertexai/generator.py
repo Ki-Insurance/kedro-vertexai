@@ -181,7 +181,7 @@ class PipelineGenerator:
         """Build kfp container graph from Kedro node dependencies."""
         kfp_tasks = {}
 
-        should_add_params = len(self.context.params) > 0
+        should_add_params = False  # Force `should_add_params` to False to avoid sending all params to all nodes
 
         mlflow_enabled = is_mlflow_enabled()
         if mlflow_enabled:
