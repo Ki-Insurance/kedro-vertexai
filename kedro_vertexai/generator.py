@@ -223,6 +223,8 @@ class PipelineGenerator:
                     "MLFLOW_RUN_ID=\"{{$.inputs.parameters['mlflow_run_id']}}\" "
                     if is_mlflow_enabled()
                     else "",
+                    # Apply KM_DO_LOG to groups explicitly tagged for mlflow logging
+                    "KM_DO_LOG=true" if "vertexai-mlflow-logging" in tags else "",
                     self._generate_gcp_env_vars_command(),
                     kedro_command,
                 ]
@@ -255,17 +257,6 @@ class PipelineGenerator:
             task = component(**component_params)
             self._configure_resources(name, tags, task)
             kfp_tasks[name] = task
-
-        # After building all tasks, patch the final one to set KM_DO_LOG=true
-        if kfp_tasks:
-            last_key = list(kfp_tasks.keys())[-1]
-            last_task = kfp_tasks[last_key]
-            try:
-                # Inject KM_DO_LOG=true env var by prefixing the shell command
-                original = last_task.container_spec.args[0]
-                last_task.container_spec.args[0] = f"KM_DO_LOG=true {original}"
-            except Exception:
-                pass
 
         return kfp_tasks
 
