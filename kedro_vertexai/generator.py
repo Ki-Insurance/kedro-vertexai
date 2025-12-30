@@ -135,7 +135,7 @@ class PipelineGenerator:
             for ha in host_aliases
         )
 
-    def _create_mlflow_task(self, image, should_add_params) -> PipelineTask:
+    def _create_mlflow_task(self, image, should_add_params, pipeline_name) -> PipelineTask:
         @dsl.container_component
         def mlflow_start_run(mlflow_run_id: dsl.OutputPath(str)):
 
@@ -147,6 +147,7 @@ class PipelineGenerator:
                     self._generate_params_command(should_add_params),
                     f"kedro vertexai -e {self.context.env} mlflow-start",
                     f"--output {mlflow_run_id}",
+                    f"--run-name {pipeline_name}",
                     self.run_name,
                 ]
             ).strip()
@@ -186,7 +187,7 @@ class PipelineGenerator:
         mlflow_enabled = is_mlflow_enabled()
         if mlflow_enabled:
             kfp_tasks["mlflow-start-run"] = self._create_mlflow_task(
-                image, should_add_params
+                image, should_add_params, pipeline
             )
 
             params_signature = self._add_mlflow_param_to_signature(params_signature)

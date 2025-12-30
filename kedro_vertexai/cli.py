@@ -377,12 +377,17 @@ src/.../settings.py:```
 @vertexai_group.command(hidden=True)
 @click.argument("run_id", type=str)
 @click.option(
+    "--run-name",
+    type=str,
+    help="The name of the MLFlow run",
+)
+@click.option(
     "--output",
     type=str,
     default="/tmp/mlflow_run_id",
 )
 @click.pass_context
-def mlflow_start(ctx, run_id: str, output: str):
+def mlflow_start(ctx, run_id: str, run_name: str, output: str):
     import mlflow
     from kedro_mlflow.config.kedro_mlflow_config import KedroMlflowConfig
 
@@ -396,6 +401,7 @@ def mlflow_start(ctx, run_id: str, output: str):
         experiment_id=mlflow.get_experiment_by_name(
             mlflow_conf.tracking.experiment.name
         ).experiment_id,
+        run_name=run_name,
         nested=False,
     )
     mlflow.set_tag(VERTEXAI_RUN_ID_TAG, run_id)
