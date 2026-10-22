@@ -40,7 +40,8 @@ jobs:
         python_version: ${{ matrix.python-version }}
 
   sonarcloud_trusted_branch:
-    if: (github.event_name != 'repository_dispatch' && (github.event.pull_request.head.repo.full_name == github.repository || github.event.pull_request == null))
+    # Ki fork: Dependabot runs get no repository secrets (SONARCLOUD_TOKEN), so skip Sonar for them.
+    if: (github.event_name != 'repository_dispatch' && (github.event.pull_request.head.repo.full_name == github.repository || github.event.pull_request == null))  &&  (github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     needs: unit_tests
     steps:
@@ -63,7 +64,8 @@ jobs:
       contains(
         github.event.client_payload.pull_request.head.sha,
         github.event.client_payload.slash_command.args.named.sha
-      )
+      ) &&
+      (github.actor != 'dependabot[bot]')
     runs-on: ubuntu-latest
     needs: unit_tests
     steps:
