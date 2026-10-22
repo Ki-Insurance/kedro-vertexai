@@ -35,27 +35,34 @@ known_third_party = ["click","google","kedro","kfp","kubernetes","tabulate", "py
 python = ">=3.10,<3.13"
 kedro = "^1.0.0"
 click = ">=8.0.4"
-kfp = ">=2.0.0,<2.16.0"  # Note: KFP 2.14+ adds additional resource fields to pipeline spec
+kfp = ">=2.9.0,<3.0.0"  # Bumped to support urllib3 v2
 tabulate = ">=0.8.7"
 semver = ">=2.10,<4.0.0"
 toposort = ">1.0,<2.0"
 pyarrow = ">=14.0.1" # Stating explicitly for sub-dependency due to critical vulnerability
+# Kept below upstream's dependabot minimum (>=2.13.5): ki-ram-property locks 2.12.5. Bump together with its lock.
 pydantic = ">=2,<3"
 google-auth = "<3"
+# Kept below upstream's dependabot minimum (>=2.21.0): ki-ram-property locks 2.17.0. Bump together with its lock.
 google-cloud-scheduler = ">=2.3.2"
 google-cloud-iam = "<3"
 gcsfs = ">=2022.1"
 fsspec = ">=2022.1"
+# Kept below upstream's <4.0.0: the 3.x major isn't tested end-to-end (unit tests mock GCS); ki-ram-property locks 2.19.0.
 google-cloud-storage = "<3.0.0"
+# Kept below upstream's dependabot minimum (>=1.84.0): ki-ram-property locks 1.76.0. Bump together with its lock.
 grpcio = ">=1.4.0,<2.0.0"
+# Kept below upstream's dependabot minimum (>=1.84.0): ki-ram-property locks 1.76.0. Bump together with its lock.
 grpcio-status = ">=1.4.0,<2.0.0"
 protobuf = ">=3.18.0,<21.0"
 kedro-mlflow = {version = "^1.0.0", optional = true}
 cachetools = ">=3.0,<6.0"
 # pyaml in version 5 does problems with installing binaries/wheel in cicd env with python 3.10. The following fixes that:
 # pyyaml = ">=6.0,<7"
+# Kept below upstream's dependabot minimum (^1.163.0): ki-ram-property locks 1.115.0. Bump together with its lock.
 google-cloud-aiplatform = {extras = ["metadata"], version = "^1.59.0"}
 cloudpickle = "^3.0.0"
+# Kept below upstream's dependabot minimum (>=2.22.5): ki-ram-property locks 2.22.2. Bump together with its lock.
 mlflow = ">=2.14.3,<3.0"
 makefun = "^1.15.6"
 
@@ -63,12 +70,12 @@ makefun = "^1.15.6"
 mlflow = ["kedro-mlflow"]
 
 [tool.poetry.group.dev.dependencies]
-pytest = "<=8.4.1"
-pytest-cov = ">=2.8.0,<7.0.0"
+pytest = "<=9.1.1"
+pytest-cov = ">=2.8.0,<8.0.0"
 tox = ">=3.25.1,<5.0.0"
-pre-commit = "4.3.0"
+pre-commit = "4.6.2"
 pytest-subtests = ">=0.8.0, <1.0.0"
-responses = ">=0.13.4"
+responses = ">=0.26.3"
 
 [tool.poetry.plugins] # Optional super table
 [tool.poetry.plugins."kedro.project_commands"]
