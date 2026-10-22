@@ -264,6 +264,7 @@ run_config:
 
     def _machine_types_config(self, **run_config):
         obj = yaml.safe_load(CONFIG_MINIMAL)
+        obj["run_config"]["service_account"] = "pipelines@test.iam.gserviceaccount.com"
         obj["run_config"].update(run_config)
         return PluginConfig.model_validate(obj).run_config
 
@@ -292,22 +293,51 @@ run_config:
         )
         assert cfg.machine_type_for("training", {"other"}) is None
 
-    def test_machine_type_node_name_overrides_tag(self):
+    def test_machine_type_node_name_entry_wins_whole(self):
         cfg = self._machine_types_config(
             machine_types={
-                "tag1": {"machine_type": "e2-highmem-8", "boot_disk_size_gb": 200},
-                "node1": {"machine_type": "n2-highmem-8"},
+                "tag1": {
+                    "machine_type": "e2-highmem-8",
+                    "boot_disk_type": "pd-standard",
+                    "boot_disk_size_gb": 200,
+                },
+                "node1": {"machine_type": "n4-highmem-8"},
             }
         )
         machine = cfg.machine_type_for("node1", {"tag1"})
-        assert machine.machine_type == "n2-highmem-8"
-        assert machine.boot_disk_size_gb == 200
+        # entries aren't merged: nothing is inherited from the tag entry
+        assert machine.machine_type == "n4-highmem-8"
+        assert machine.boot_disk_type == "hyperdisk-balanced"
+        assert machine.boot_disk_size_gb == 100
+
+    def test_machine_type_several_matching_tags_is_an_error(self):
+        cfg = self._machine_types_config(
+            machine_types={
+                "tag1": {"machine_type": "e2-highmem-8"},
+                "tag2": {"machine_type": "n2-highmem-8"},
+            }
+        )
+        with self.assertRaisesRegex(ValueError, r"\['tag1', 'tag2'\]"):
+            cfg.machine_type_for("node1", {"tag2", "tag1"})
+        assert cfg.machine_type_for("node1", {"tag2"}).machine_type == "n2-highmem-8"
+
+    def test_machine_types_null_is_empty(self):
+        cfg = self._machine_types_config(machine_types=None)
+        assert cfg.machine_types == {}
+        assert cfg.machine_type_for("node1", {"tag1"}) is None
+
+    def test_machine_types_require_service_account(self):
+        obj = yaml.safe_load(CONFIG_MINIMAL)
+        obj["run_config"]["machine_types"] = {"node1": {"machine_type": "n4-highmem-8"}}
+        with self.assertRaisesRegex(ValidationError, "service_account"):
+            PluginConfig.model_validate(obj)
 
     def test_machine_type_infers_hyperdisk_for_hyperdisk_only_families(self):
         cfg = self._machine_types_config(
             machine_types={
                 "n4": {"machine_type": "n4-highmem-8"},
                 "c4": {"machine_type": "c4-standard-8"},
+                "m4": {"machine_type": "m4-megamem-28"},
                 "explicit": {
                     "machine_type": "n4-highmem-8",
                     "boot_disk_type": "hyperdisk-extreme",
@@ -316,6 +346,7 @@ run_config:
         )
         assert cfg.machine_type_for("n4").boot_disk_type == "hyperdisk-balanced"
         assert cfg.machine_type_for("c4").boot_disk_type == "hyperdisk-balanced"
+        assert cfg.machine_type_for("m4").boot_disk_type == "hyperdisk-balanced"
         assert cfg.machine_type_for("explicit").boot_disk_type == "hyperdisk-extreme"
 
     def test_machine_type_ignores_default_resources(self):

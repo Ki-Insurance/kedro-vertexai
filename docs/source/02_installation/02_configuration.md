@@ -263,13 +263,14 @@ resources configurations](https://cloud.google.com/vertex-ai/docs/training/confi
 
 With `resources`, Vertex AI picks the machine itself, as the closest match to the cpu/memory requests. To run a node on
 a specific machine type instead (for example, for faster per-core CPUs), use the optional `machine_types` section.
-Nodes are selected by name or tag, as in `resources`:
+Nodes are selected by name or tag, as in `resources`, but entries are not merged: a node-name entry wins, otherwise
+exactly one tag entry may match (several matching tags is an error):
 
 ```yaml
 machine_types:
   model-training-node:
     machine_type: n4-highmem-8
-    # boot_disk_type: hyperdisk-balanced  # default: hyperdisk-balanced for n4/n4d/c4/c4a/c4d, pd-ssd otherwise
+    # boot_disk_type: hyperdisk-balanced  # default: hyperdisk-balanced for n4/n4a/n4d/c4/c4a/c4d/h4d/m4/x4, pd-ssd otherwise
     # boot_disk_size_gb: 100              # default: 100
 ```
 
@@ -278,8 +279,12 @@ Such nodes run as a Vertex AI
 `google_cloud_pipeline_components`' `create_custom_training_job_from_component`, with the run's `service_account` and
 `network.vpc`. Notes:
 
+- `service_account` is required: the CustomJob doesn't inherit the pipeline's service account.
 - A node with a machine type must not also match an explicit `resources` entry or a `node_selectors` entry; pipeline
   compilation fails if it does. `resources.__default__` is ignored for such nodes.
+- Pipeline params must not be named like a CustomJob input (`location`, `timeout`, `labels`, `network`, ...);
+  compilation fails if they are.
+- For Hyperdisk-only families not in the default list, set `boot_disk_type` explicitly.
 - The CustomJob is started by a separate launcher step, which adds some start-up time per wrapped node.
 - Only [machine types supported by Vertex AI training](https://cloud.google.com/vertex-ai/docs/training/configure-compute#machine-types)
   can be used, subject to the project's per-family custom-training quota.

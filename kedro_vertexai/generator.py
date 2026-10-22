@@ -6,9 +6,6 @@ import logging
 import os
 from typing import Dict, List, Union  # noqa
 
-from google_cloud_pipeline_components.v1.custom_job import (
-    create_custom_training_job_from_component,
-)
 from kedro.framework.context import KedroContext
 from kfp import dsl
 from kfp.dsl import PipelineTask
@@ -312,6 +309,24 @@ class PipelineGenerator:
         machine. The CustomJob doesn't inherit the PipelineJob's service account or network,
         so both are passed explicitly.
         """
+        # Imported here so pipelines without machine_types don't pay for the import
+        from google_cloud_pipeline_components.v1.custom_job import (
+            CustomTrainingJobOp,
+            create_custom_training_job_from_component,
+        )
+
+        # The wrapper merges the component's inputs over the CustomJob's own (location,
+        # timeout, labels, ...), so a pipeline param with such a name would silently
+        # replace that CustomJob setting.
+        clashes = sorted(
+            set(component.component_spec.inputs)
+            & set(CustomTrainingJobOp.component_spec.inputs)
+        )
+        if clashes:
+            raise ValueError(
+                f"Pipeline params {clashes} clash with Vertex AI CustomJob inputs used by "
+                f"machine-typed node '{name}'; rename them."
+            )
         custom_job_op = create_custom_training_job_from_component(
             component,
             display_name=name,

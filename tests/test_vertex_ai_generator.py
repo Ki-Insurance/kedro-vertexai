@@ -443,9 +443,28 @@ class TestGenerator(unittest.TestCase):
         assert executors["exec-node2"]["container"]["image"] == "unittest-image"
         assert executors["exec-node2"]["container"]["resources"]["cpuLimit"] == 0.1
 
+    def test_should_fail_when_params_clash_with_custom_job_inputs(self):
+        self.create_generator(
+            config={
+                "service_account": "pipelines@test-project.iam.gserviceaccount.com",
+                "machine_types": {"node1": {"machine_type": "n4-highmem-8"}},
+            }
+        )
+        with patch(
+            "kedro.framework.project.pipelines",
+            new=self.pipelines_under_test,
+        ), self.assertRaisesRegex(ValueError, r"\['location'\].*node1"):
+            self.generator_under_test.generate_pipeline(
+                "pipeline",
+                "unittest-image",
+                "MLFLOW_TRACKING_TOKEN",
+                params="location:str,my_param:int",
+            )
+
     def test_should_fail_when_machine_type_conflicts_with_resources(self):
         self.create_generator(
             config={
+                "service_account": "pipelines@test-project.iam.gserviceaccount.com",
                 "resources": {"__default__": {"cpu": "100m"}, "node1": {"cpu": "4"}},
                 "machine_types": {"node1": {"machine_type": "n4-highmem-8"}},
             }
