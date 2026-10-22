@@ -48,7 +48,8 @@ google-cloud-scheduler = ">=2.3.2"
 google-cloud-iam = "<3"
 gcsfs = ">=2022.1"
 fsspec = ">=2022.1"
-google-cloud-storage = "<4.0.0"
+# Kept below upstream's <4.0.0: the 3.x major isn't tested end-to-end (unit tests mock GCS); ki-ram-property locks 2.19.0.
+google-cloud-storage = "<3.0.0"
 # Kept below upstream's dependabot minimum (>=1.84.0): ki-ram-property locks 1.76.0. Bump together with its lock.
 grpcio = ">=1.4.0,<2.0.0"
 # Kept below upstream's dependabot minimum (>=1.84.0): ki-ram-property locks 1.76.0. Bump together with its lock.
