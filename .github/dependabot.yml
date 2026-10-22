@@ -7,7 +7,7 @@ updates:
     directory: "/"
     schedule:
       interval: "weekly"
-    versioning-strategy: increase
+    # Ki fork: no `versioning-strategy: increase`; it raises pyproject minimums above ki-ram-property's lock.
     open-pull-requests-limit: 10
 
     # Keep impactful dependencies separate for careful review
