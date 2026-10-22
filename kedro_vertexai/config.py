@@ -88,6 +88,16 @@ run_config:
     model_training:
       cloud.google.com/gke-accelerator: NVIDIA_TESLA_T4
 
+  # Optional section to run selected nodes on an explicit Vertex AI machine type instead of
+  # letting Vertex AI pick one from the cpu/memory requests. Keys are node names or tags, as in
+  # `resources`. A node with a machine type must not also match `resources` (other than
+  # __default__) or `node_selectors`.
+  # machine_types:
+  #   model_training:
+  #     machine_type: n4-highmem-8
+  #     # boot_disk_type: hyperdisk-balanced  # default: inferred from the machine family
+  #     # boot_disk_size_gb: 100
+
   # Optional section allowing to generate config files at runtime,
   # useful e.g. when you need to obtain credentials dynamically and store them in credentials.yaml
   # but the credentials need to be refreshed per-node
@@ -201,6 +211,21 @@ class ResourcesConfig(BaseModel):
     memory: Optional[str] = None
 
 
+# Machine families that only boot from Hyperdisk; Vertex AI rejects them with the pd-ssd default.
+HYPERDISK_ONLY_FAMILIES = {"n4", "n4d", "c4", "c4a", "c4d"}
+
+
+def default_boot_disk_type(machine_type: str) -> str:
+    family = machine_type.split("-", 1)[0]
+    return "hyperdisk-balanced" if family in HYPERDISK_ONLY_FAMILIES else "pd-ssd"
+
+
+class MachineTypeConfig(BaseModel):
+    machine_type: str
+    boot_disk_type: Optional[str] = None
+    boot_disk_size_gb: Optional[int] = None
+
+
 class NetworkConfig(BaseModel):
     vpc: Optional[str] = None
     host_aliases: Optional[List[HostAliasConfig]] = []
@@ -240,6 +265,7 @@ class RunConfig(BaseModel):
         __default__=ResourcesConfig(cpu="500m", memory="1024Mi")
     )
     node_selectors: Optional[Dict[str, Dict[str, str]]] = {}
+    machine_types: Optional[Dict[str, MachineTypeConfig]] = {}
     dynamic_config_providers: Optional[List[DynamicConfigProviderConfig]] = []
     mlflow: Optional[MLFlowVertexAIConfig] = None
     schedules: Optional[Dict[str, ScheduleConfig]] = None
@@ -250,6 +276,29 @@ class RunConfig(BaseModel):
 
     def node_selectors_for(self, node: str, tags: Optional[set] = None):
         return self._config_for(node, tags, self.node_selectors)
+
+    def machine_type_for(
+        self, node: str, tags: Optional[set] = None
+    ) -> Optional[MachineTypeConfig]:
+        """Explicit machine type for a node (group), or None to keep cpu/memory requests."""
+        config = self._config_for(node, tags, self.machine_types)
+        if not config:
+            return None
+        names = [*(tags or set()), node]
+        conflicts = sorted(
+            {n for n in names if n in self.resources and n != "__default__"}
+            | {n for n in names if n in self.node_selectors}
+        )
+        if conflicts:
+            raise ValueError(
+                f"Node '{node}' has a machine type but also matches resources/node_selectors "
+                f"entries {conflicts}; use one or the other."
+            )
+        config.setdefault("boot_disk_size_gb", 100)
+        config.setdefault(
+            "boot_disk_type", default_boot_disk_type(config["machine_type"])
+        )
+        return MachineTypeConfig(**config)
 
     @staticmethod
     def _config_for(

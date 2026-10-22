@@ -2,6 +2,8 @@
 
 ## [Unreleased]
 
+-   Ki fork: `machine_types` run config to run selected nodes on an explicit Vertex AI machine type (CustomJob wrapper)
+-   Ki fork: synced with upstream develop; Dependabot automation disabled
 -   Improved GitHub workflows with modular reusable actions and secure fork PR testing
 
 ## [1.0.0] - 2025-08-26

@@ -1718,6 +1718,27 @@ proto-plus = ">=1.26.1,<2.0.0"
 protobuf = ">=6.33.5,<8.0.0"
 
 [[package]]
+name = "google-cloud-pipeline-components"
+version = "2.22.0"
+description = "This SDK enables a set of First Party (Google owned) pipeline components that allow users to take their experience from Vertex AI SDK and other Google Cloud services and create a corresponding pipeline using KFP or Managed Pipelines."
+optional = false
+python-versions = ">=3.8.0"
+groups = ["main"]
+files = [
+    {file = "google_cloud_pipeline_components-2.22.0-py3-none-any.whl", hash = "sha256:aea2d526b3d562246beb7a4ca983e48983448c7b8b04a4f7053374f08a927104"},
+]
+
+[package.dependencies]
+google-api-core = ">=1.31.5,<2.0 || >=2.3.dev0,!=2.3.0,<3.0.0"
+google-cloud-aiplatform = ">=1.14.0,<2"
+Jinja2 = ">=3.1.2,<4"
+kfp = ">=2.6.0,<3.0.0"
+
+[package.extras]
+docs = ["autodocsumm (==0.2.9)", "commonmark (==0.9.1)", "grpcio-status (<=1.47.0)", "m2r2 (==0.3.3.post2)", "protobuf (>=4.21.1,<5)", "sphinx (>=5.0.2,<6.0.0)", "sphinx-immaterial (==0.9.0)", "sphinx-notfound-page (==0.8.3)", "sphinx-rtd-theme (==2.0.0)"]
+tests = ["flake8 (>=3.0.0)", "mock (>=4.0.0)", "pytest (>=6.0.0)"]
+
+[[package]]
 name = "google-cloud-resource-manager"
 version = "1.14.2"
 description = "Google Cloud Resource Manager API client library"
@@ -5305,4 +5326,4 @@ mlflow = ["kedro-mlflow"]
 [metadata]
 lock-version = "2.1"
 python-versions = ">=3.10,<3.13"
-content-hash = "32f5d4825eeb08d1ca673bdd8142b83cc53060ce4f97f3057b800b9de27f3f91"
+content-hash = "cdbf915b545211c1872526cd9524b9296eebf1a0fb55ddc202fc88747a9928e9"

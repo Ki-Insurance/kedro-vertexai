@@ -263,7 +263,9 @@ class TestGenerator(unittest.TestCase):
                 )
             )
 
-    def test_should_dump_params_and_add_config_if_params_are_set(self):
+    def test_should_not_dump_params_even_if_params_are_set(self):
+        # Ki fork (PC-3990): should_add_params is forced to False, so params are never
+        # dumped via initialize-job nor passed as --config.
         self.create_generator(params={"my_params1": 1.0, "my_param2": ["a", "b", "c"]})
 
         with patch(
@@ -280,21 +282,12 @@ class TestGenerator(unittest.TestCase):
                 with open(spec_output.name) as f:
                     pipeline_spec = yaml.safe_load(f)
 
-            assert (
-                "kedro vertexai -e unittests initialize-job --params="
-                in pipeline_spec["deploymentSpec"]["executors"]["exec-node1"][
-                    "container"
-                ]["args"][0]
-            )
-
-            assert (
-                'kedro run -e unittests --pipeline pipeline --nodes "node1"'
-                in (
-                    args := pipeline_spec["deploymentSpec"]["executors"]["exec-node1"][
-                        "container"
-                    ]["args"][0]
-                )
-            ) and args.endswith("--config config.yaml")
+            args = pipeline_spec["deploymentSpec"]["executors"]["exec-node1"][
+                "container"
+            ]["args"][0]
+            assert "initialize-job" not in args
+            assert 'kedro run -e unittests --pipeline pipeline --nodes "node1"' in args
+            assert "--config config.yaml" not in args
 
     def test_should_add_globals_env_if_present(self):
         with environment({"KEDRO_GLOBALS_PATTERN": "*globals.yml"}):
@@ -328,8 +321,8 @@ class TestGenerator(unittest.TestCase):
                     pipeline_spec["deploymentSpec"]["executors"]["exec-node1"][
                         "container"
                     ]["args"][0].count(expected)
-                    == 2
-                ), "Globals variable should be added twice - once for initialize-job, once for kedro run"
+                    == 1
+                ), "Globals variable should be added once, for kedro run (no initialize-job, PC-3990)"
 
     @patch("kedro_vertexai.generator.is_mlflow_enabled", return_value=True)
     def test_should_add_host_aliases_if_requested(self, mock_is_mlflow_enabled):
@@ -378,6 +371,87 @@ class TestGenerator(unittest.TestCase):
                     "container"
                 ]["args"][0]
             )
+
+    def _compile_pipeline_spec(self):
+        with patch(
+            "kedro.framework.project.pipelines",
+            new=self.pipelines_under_test,
+        ):
+            pipeline = self.generator_under_test.generate_pipeline(
+                "pipeline", "unittest-image", "MLFLOW_TRACKING_TOKEN"
+            )
+            with NamedTemporaryFile(
+                mode="rt", prefix="pipeline", suffix=".yaml"
+            ) as spec_output:
+                kfp.compiler.Compiler().compile(pipeline, spec_output.name)
+                with open(spec_output.name) as f:
+                    return yaml.safe_load(f)
+
+    @patch("kedro_vertexai.generator.is_mlflow_enabled", return_value=True)
+    def test_should_run_machine_typed_node_as_custom_job(self, _):
+        # given
+        self.create_generator(
+            config={
+                "service_account": "pipelines@test-project.iam.gserviceaccount.com",
+                "network": {"vpc": "projects/123/global/networks/my-vpc"},
+                "resources": {"__default__": {"cpu": "100m"}},
+                "machine_types": {"node1": {"machine_type": "n4-highmem-8"}},
+            }
+        )
+        unwrapped_spec = None
+        with patch.object(self.generator_under_test.run_config, "machine_types", {}):
+            unwrapped_spec = self._compile_pipeline_spec()
+
+        # when
+        pipeline_spec = self._compile_pipeline_spec()
+
+        # then
+        executors = pipeline_spec["deploymentSpec"]["executors"]
+        assert (
+            "google-cloud-pipeline-components"
+            in executors["exec-node1"]["container"]["image"]
+        )
+        params = pipeline_spec["components"]["comp-node1"]["inputDefinitions"][
+            "parameters"
+        ]
+        (worker_pool,) = params["worker_pool_specs"]["defaultValue"]
+        assert worker_pool["machine_spec"] == {"machine_type": "n4-highmem-8"}
+        assert worker_pool["disk_spec"] == {
+            "boot_disk_type": "hyperdisk-balanced",
+            "boot_disk_size_gb": 100,
+        }
+        unwrapped = unwrapped_spec["deploymentSpec"]["executors"]["exec-node1"][
+            "container"
+        ]
+        assert worker_pool["container_spec"]["image_uri"] == "unittest-image"
+        assert worker_pool["container_spec"]["command"] == unwrapped["command"]
+        assert worker_pool["container_spec"]["args"] == unwrapped["args"]
+        assert (
+            params["service_account"]["defaultValue"]
+            == "pipelines@test-project.iam.gserviceaccount.com"
+        )
+        assert (
+            params["network"]["defaultValue"] == "projects/123/global/networks/my-vpc"
+        )
+        node1_inputs = pipeline_spec["root"]["dag"]["tasks"]["node1"]["inputs"][
+            "parameters"
+        ]
+        assert node1_inputs["mlflow_run_id"]["taskOutputParameter"] == {
+            "outputParameterKey": "mlflow_run_id",
+            "producerTask": "mlflow-start-run",
+        }
+        assert executors["exec-node2"]["container"]["image"] == "unittest-image"
+        assert executors["exec-node2"]["container"]["resources"]["cpuLimit"] == 0.1
+
+    def test_should_fail_when_machine_type_conflicts_with_resources(self):
+        self.create_generator(
+            config={
+                "resources": {"__default__": {"cpu": "100m"}, "node1": {"cpu": "4"}},
+                "machine_types": {"node1": {"machine_type": "n4-highmem-8"}},
+            }
+        )
+        with self.assertRaisesRegex(ValueError, "node1"):
+            self._compile_pipeline_spec()
 
     def test_generate_params_signature(self):
         self.create_generator()
