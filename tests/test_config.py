@@ -262,6 +262,126 @@ run_config:
         assert cfg.run_config.network.vpc is None
         assert cfg.run_config.network.host_aliases == []
 
+    def _machine_types_config(self, **run_config):
+        obj = yaml.safe_load(CONFIG_MINIMAL)
+        obj["run_config"]["service_account"] = "pipelines@test.iam.gserviceaccount.com"
+        obj["run_config"].update(run_config)
+        return PluginConfig.model_validate(obj).run_config
+
+    def test_machine_type_none_when_not_configured(self):
+        cfg = self._machine_types_config()
+        assert cfg.machine_types == {}
+        assert cfg.machine_type_for("node1", {"tag1"}) is None
+
+    def test_machine_type_by_node_name(self):
+        cfg = self._machine_types_config(
+            machine_types={"node1": {"machine_type": "c2-standard-16"}}
+        )
+        machine = cfg.machine_type_for("node1")
+        assert machine.machine_type == "c2-standard-16"
+        assert machine.boot_disk_type == "pd-ssd"
+        assert machine.boot_disk_size_gb == 100
+        assert cfg.machine_type_for("node2") is None
+
+    def test_machine_type_by_tag(self):
+        cfg = self._machine_types_config(
+            machine_types={"group.training": {"machine_type": "n2-highmem-8"}}
+        )
+        assert (
+            cfg.machine_type_for("training", {"group.training"}).machine_type
+            == "n2-highmem-8"
+        )
+        assert cfg.machine_type_for("training", {"other"}) is None
+
+    def test_machine_type_node_name_entry_wins_whole(self):
+        cfg = self._machine_types_config(
+            machine_types={
+                "tag1": {
+                    "machine_type": "e2-highmem-8",
+                    "boot_disk_type": "pd-standard",
+                    "boot_disk_size_gb": 200,
+                },
+                "node1": {"machine_type": "n4-highmem-8"},
+            }
+        )
+        machine = cfg.machine_type_for("node1", {"tag1"})
+        # entries aren't merged: nothing is inherited from the tag entry
+        assert machine.machine_type == "n4-highmem-8"
+        assert machine.boot_disk_type == "hyperdisk-balanced"
+        assert machine.boot_disk_size_gb == 100
+
+    def test_machine_type_several_matching_tags_is_an_error(self):
+        cfg = self._machine_types_config(
+            machine_types={
+                "tag1": {"machine_type": "e2-highmem-8"},
+                "tag2": {"machine_type": "n2-highmem-8"},
+            }
+        )
+        with self.assertRaisesRegex(ValueError, r"\['tag1', 'tag2'\]"):
+            cfg.machine_type_for("node1", {"tag2", "tag1"})
+        assert cfg.machine_type_for("node1", {"tag2"}).machine_type == "n2-highmem-8"
+
+    def test_machine_types_null_is_empty(self):
+        cfg = self._machine_types_config(machine_types=None)
+        assert cfg.machine_types == {}
+        assert cfg.machine_type_for("node1", {"tag1"}) is None
+
+    def test_machine_types_require_service_account(self):
+        obj = yaml.safe_load(CONFIG_MINIMAL)
+        obj["run_config"]["machine_types"] = {"node1": {"machine_type": "n4-highmem-8"}}
+        with self.assertRaisesRegex(ValidationError, "service_account"):
+            PluginConfig.model_validate(obj)
+
+    def test_machine_type_infers_hyperdisk_for_hyperdisk_only_families(self):
+        cfg = self._machine_types_config(
+            machine_types={
+                "n4": {"machine_type": "n4-highmem-8"},
+                "c4": {"machine_type": "c4-standard-8"},
+                "m4": {"machine_type": "m4-megamem-28"},
+                "explicit": {
+                    "machine_type": "n4-highmem-8",
+                    "boot_disk_type": "hyperdisk-extreme",
+                },
+            }
+        )
+        assert cfg.machine_type_for("n4").boot_disk_type == "hyperdisk-balanced"
+        assert cfg.machine_type_for("c4").boot_disk_type == "hyperdisk-balanced"
+        assert cfg.machine_type_for("m4").boot_disk_type == "hyperdisk-balanced"
+        assert cfg.machine_type_for("explicit").boot_disk_type == "hyperdisk-extreme"
+
+    def test_machine_type_ignores_default_resources(self):
+        cfg = self._machine_types_config(
+            resources={"__default__": {"cpu": "200m", "memory": "64Mi"}},
+            machine_types={"node1": {"machine_type": "n2-highmem-8"}},
+        )
+        assert cfg.machine_type_for("node1").machine_type == "n2-highmem-8"
+
+    def test_machine_type_conflicts_with_explicit_resources(self):
+        cfg = self._machine_types_config(
+            resources={
+                "__default__": {"cpu": "200m", "memory": "64Mi"},
+                "tag1": {"memory": "64Gi"},
+            },
+            machine_types={"node1": {"machine_type": "n2-highmem-8"}},
+        )
+        with self.assertRaisesRegex(ValueError, r"node1.*\['tag1'\]"):
+            cfg.machine_type_for("node1", {"tag1"})
+        assert cfg.machine_type_for("node1", {"tag2"}).machine_type == "n2-highmem-8"
+
+    def test_machine_type_conflicts_with_node_selectors(self):
+        cfg = self._machine_types_config(
+            node_selectors={"node1": {"cloud.google.com/gke-accelerator": "NVIDIA_L4"}},
+            machine_types={"node1": {"machine_type": "n2-highmem-8"}},
+        )
+        with self.assertRaisesRegex(ValueError, "node_selectors"):
+            cfg.machine_type_for("node1")
+
+    def test_machine_type_is_required(self):
+        with self.assertRaises(ValidationError):
+            self._machine_types_config(
+                machine_types={"node1": {"boot_disk_size_gb": 50}}
+            )
+
     @unittest.skip(
         "Scheduling feature is temporarily disabled https://github.com/getindata/kedro-vertexai/issues/4"
     )

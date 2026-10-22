@@ -13,6 +13,7 @@ from makefun import with_signature
 
 from kedro_vertexai.config import (
     KedroVertexAIRunnerConfig,
+    MachineTypeConfig,
     RunConfig,
     dynamic_init_class,
 )
@@ -135,7 +136,9 @@ class PipelineGenerator:
             for ha in host_aliases
         )
 
-    def _create_mlflow_task(self, image, should_add_params, pipeline_name) -> PipelineTask:
+    def _create_mlflow_task(
+        self, image, should_add_params, pipeline_name
+    ) -> PipelineTask:
         @dsl.container_component
         def mlflow_start_run(mlflow_run_id: dsl.OutputPath(str)):
 
@@ -182,7 +185,8 @@ class PipelineGenerator:
         """Build kfp container graph from Kedro node dependencies."""
         kfp_tasks = {}
 
-        should_add_params = False  # Force `should_add_params` to False to avoid sending all params to all nodes
+        # Force `should_add_params` to False to avoid sending all params to all nodes
+        should_add_params = False
 
         mlflow_enabled = is_mlflow_enabled()
         if mlflow_enabled:
@@ -255,8 +259,14 @@ class PipelineGenerator:
                     args=[full_command],
                 )
 
-            task = component(**component_params)
-            self._configure_resources(name, tags, task)
+            machine = self.run_config.machine_type_for(name, tags)
+            if machine:
+                task = self._create_custom_job_task(
+                    component, name, machine, component_params
+                )
+            else:
+                task = component(**component_params)
+                self._configure_resources(name, tags, task)
             kfp_tasks[name] = task
 
         return kfp_tasks
@@ -285,6 +295,48 @@ class PipelineGenerator:
         project_id = vertex_conf.get("project_id")
         region = vertex_conf.get("region")
         return f"GCP_PROJECT_ID={project_id} GCP_REGION={region}"
+
+    def _create_custom_job_task(
+        self,
+        component,
+        name: str,
+        machine: MachineTypeConfig,
+        component_params: dict,
+    ) -> PipelineTask:
+        """Run the component as a Vertex AI CustomJob on an explicit machine type.
+
+        A plain pipeline step can only request cpu/memory, from which Vertex AI picks the
+        machine. The CustomJob doesn't inherit the PipelineJob's service account or network,
+        so both are passed explicitly.
+        """
+        # Imported here so pipelines without machine_types don't pay for the import
+        from google_cloud_pipeline_components.v1.custom_job import (
+            CustomTrainingJobOp,
+            create_custom_training_job_from_component,
+        )
+
+        # The wrapper merges the component's inputs over the CustomJob's own (location,
+        # timeout, labels, ...), so a pipeline param with such a name would silently
+        # replace that CustomJob setting.
+        clashes = sorted(
+            set(component.component_spec.inputs)
+            & set(CustomTrainingJobOp.component_spec.inputs)
+        )
+        if clashes:
+            raise ValueError(
+                f"Pipeline params {clashes} clash with Vertex AI CustomJob inputs used by "
+                f"machine-typed node '{name}'; rename them."
+            )
+        custom_job_op = create_custom_training_job_from_component(
+            component,
+            display_name=name,
+            machine_type=machine.machine_type,
+            boot_disk_type=machine.boot_disk_type,
+            boot_disk_size_gb=machine.boot_disk_size_gb,
+            service_account=self.run_config.service_account or "",
+            network=self.run_config.network.vpc or "",
+        )
+        return custom_job_op(**component_params)
 
     def _configure_resources(self, name: str, tags: set, task: PipelineTask):
         resources = self.run_config.resources_for(name, tags)

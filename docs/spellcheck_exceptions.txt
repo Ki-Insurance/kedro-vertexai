@@ -113,3 +113,5 @@ CPUs
 GPUs
 Kedro's
 resolvers
+CustomJob
+Hyperdisk

@@ -4,7 +4,7 @@ from importlib import import_module
 from inspect import signature
 from typing import Dict, List, Optional
 
-from pydantic import BaseModel, field_validator
+from pydantic import BaseModel, field_validator, model_validator
 from pydantic.networks import IPvAnyAddress
 
 DEFAULT_CONFIG_TEMPLATE = """
@@ -87,6 +87,17 @@ run_config:
   node_selectors:
     model_training:
       cloud.google.com/gke-accelerator: NVIDIA_TESLA_T4
+
+  # Optional section to run selected nodes on an explicit Vertex AI machine type instead of
+  # letting Vertex AI pick one from the cpu/memory requests. Keys are node names or tags, as in
+  # `resources`, but entries aren't merged: a node-name entry wins, otherwise exactly one tag
+  # entry may match. Requires `service_account`. A node with a machine type must not also
+  # match `resources` (other than __default__) or `node_selectors`.
+  # machine_types:
+  #   model_training:
+  #     machine_type: n4-highmem-8
+  #     # boot_disk_type: hyperdisk-balanced  # default: inferred from the machine family
+  #     # boot_disk_size_gb: 100
 
   # Optional section allowing to generate config files at runtime,
   # useful e.g. when you need to obtain credentials dynamically and store them in credentials.yaml
@@ -201,6 +212,28 @@ class ResourcesConfig(BaseModel):
     memory: Optional[str] = None
 
 
+# Machine families that only boot from Hyperdisk; Vertex AI rejects them with the pd-ssd default.
+# For a Hyperdisk-only family missing here, set `boot_disk_type` explicitly.
+HYPERDISK_ONLY_FAMILIES = {"n4", "n4a", "n4d", "c4", "c4a", "c4d", "h4d", "m4", "x4"}
+
+
+def default_boot_disk_type(machine_type: str) -> str:
+    family = machine_type.split("-", 1)[0]
+    return "hyperdisk-balanced" if family in HYPERDISK_ONLY_FAMILIES else "pd-ssd"
+
+
+class MachineTypeConfig(BaseModel):
+    machine_type: str
+    boot_disk_type: Optional[str] = None
+    boot_disk_size_gb: int = 100
+
+    @model_validator(mode="after")
+    def _infer_boot_disk_type(self):
+        if self.boot_disk_type is None:
+            self.boot_disk_type = default_boot_disk_type(self.machine_type)
+        return self
+
+
 class NetworkConfig(BaseModel):
     vpc: Optional[str] = None
     host_aliases: Optional[List[HostAliasConfig]] = []
@@ -240,9 +273,26 @@ class RunConfig(BaseModel):
         __default__=ResourcesConfig(cpu="500m", memory="1024Mi")
     )
     node_selectors: Optional[Dict[str, Dict[str, str]]] = {}
+    machine_types: Optional[Dict[str, MachineTypeConfig]] = {}
     dynamic_config_providers: Optional[List[DynamicConfigProviderConfig]] = []
     mlflow: Optional[MLFlowVertexAIConfig] = None
     schedules: Optional[Dict[str, ScheduleConfig]] = None
+
+    @field_validator("machine_types", mode="before")
+    @classmethod
+    def _machine_types_none_to_empty(cls, value):
+        # `machine_types:` with every entry commented out loads as None
+        return value or {}
+
+    @model_validator(mode="after")
+    def _machine_types_need_service_account(self):
+        if self.machine_types and not self.service_account:
+            raise ValueError(
+                "`machine_types` requires `service_account`: machine-typed nodes run as "
+                "CustomJobs, which would otherwise run as the Vertex AI Custom Code Service "
+                "Agent instead of the pipeline's service account."
+            )
+        return self
 
     def resources_for(self, node: str, tags: Optional[set] = None):
         default_config = self.resources["__default__"].model_dump()
@@ -250,6 +300,39 @@ class RunConfig(BaseModel):
 
     def node_selectors_for(self, node: str, tags: Optional[set] = None):
         return self._config_for(node, tags, self.node_selectors)
+
+    def machine_type_for(
+        self, node: str, tags: Optional[set] = None
+    ) -> Optional[MachineTypeConfig]:
+        """Explicit machine type for a node (group), or None to keep cpu/memory requests.
+
+        Unlike `resources`, entries are not merged: the node-name entry wins, otherwise the
+        single matching tag entry is used whole (several matching tags is an error).
+        """
+        tags = tags or set()
+        if node in self.machine_types:
+            key = node
+        else:
+            matching_tags = sorted(t for t in tags if t in self.machine_types)
+            if len(matching_tags) > 1:
+                raise ValueError(
+                    f"Node '{node}' matches several machine_types tag entries "
+                    f"{matching_tags}; add an entry for the node name or keep one tag."
+                )
+            if not matching_tags:
+                return None
+            key = matching_tags[0]
+        names = {*tags, node}
+        conflicts = sorted(
+            {n for n in names if n in (self.resources or {}) and n != "__default__"}
+            | {n for n in names if n in (self.node_selectors or {})}
+        )
+        if conflicts:
+            raise ValueError(
+                f"Node '{node}' has a machine type but also matches resources/node_selectors "
+                f"entries {conflicts}; use one or the other."
+            )
+        return self.machine_types[key]
 
     @staticmethod
     def _config_for(

@@ -65,6 +65,7 @@ cloudpickle = "^3.0.0"
 # Kept below upstream's dependabot minimum (>=2.22.5): ki-ram-property locks 2.22.2. Bump together with its lock.
 mlflow = ">=2.14.3,<3.0"
 makefun = "^1.15.6"
+google-cloud-pipeline-components = ">=2.22.0,<3.0.0"  # machine_types: CustomJob wrapper
 
 [tool.poetry.extras]
 mlflow = ["kedro-mlflow"]
