@@ -306,8 +306,8 @@ class PipelineGenerator:
         """Run the component as a Vertex AI CustomJob on an explicit machine type.
 
         A plain pipeline step can only request cpu/memory, from which Vertex AI picks the
-        machine. The CustomJob doesn't inherit the PipelineJob's service account or network,
-        so both are passed explicitly.
+        machine. The CustomJob doesn't inherit the PipelineJob's service account or network
+        (VPC or network attachment), so they are passed explicitly.
         """
         # Imported here so pipelines without machine_types don't pay for the import
         from google_cloud_pipeline_components.v1.custom_job import (
@@ -319,7 +319,7 @@ class PipelineGenerator:
         # timeout, labels, ...), so a pipeline param with such a name would silently
         # replace that CustomJob setting.
         clashes = sorted(
-            set(component.component_spec.inputs)
+            set(component.component_spec.inputs or {})
             & set(CustomTrainingJobOp.component_spec.inputs)
         )
         if clashes:
@@ -335,6 +335,7 @@ class PipelineGenerator:
             boot_disk_size_gb=machine.boot_disk_size_gb,
             service_account=self.run_config.service_account or "",
             network=self.run_config.network.vpc or "",
+            psc_interface_config=self.run_config.network.psc_interface_config,
         )
         return custom_job_op(**component_params)
 

@@ -90,6 +90,16 @@ run_config:
       hostnames: ['featurestore.internal']
 ```
 
+Instead of VPC peering, the pipeline can reach the VPC through a [Private Service Connect interface](https://cloud.google.com/vertex-ai/docs/general/vpc-psc-i-setup). Set the full name of the network attachment instead of `vpc` (the two can't be combined). The attachment must be in the pipeline's `region`, but can be in another project, as long as the Vertex AI Service Agent of the pipeline's project may use it:
+
+```yaml
+run_config:
+  network:
+    network_attachment: projects/network-project/regions/europe-west4/networkAttachments/name-of-attachment
+```
+
+`network_attachment` isn't supported for scheduled runs yet.
+
 ##### 2. Preparing environment variables
 
 There are the following specific environment variables required for the pipeline to run correctly:
