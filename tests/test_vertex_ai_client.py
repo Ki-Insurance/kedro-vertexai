@@ -3,13 +3,16 @@
 import unittest
 from unittest.mock import MagicMock, patch
 
+from click import ClickException
+from google.cloud.aiplatform.compat.types import (
+    pipeline_job as gca_pipeline_job,
+)
+
 from kedro_vertexai.client import VertexAIPipelinesClient
 from kedro_vertexai.config import PluginConfig, ScheduleConfig
 from kedro_vertexai.utils import strip_margin
 
-NETWORK_ATTACHMENT = (
-    "projects/net-project/regions/europe-west2/networkAttachments/vertex-psc"
-)
+NETWORK_ATTACHMENT = "projects/net-project/regions/REGION/networkAttachments/vertex-psc"
 
 
 class TestVertexAIClient(unittest.TestCase):
@@ -47,15 +50,18 @@ class TestVertexAIClient(unittest.TestCase):
             "kedro_vertexai.client.aip.init"
         ):
             job = PipelineJob.return_value
+            # The real resource, so the test fails if it stops accepting the config
+            job._gca_resource = gca_pipeline_job.PipelineJob()
 
             client_under_test = self.create_client(
                 network={"network_attachment": NETWORK_ATTACHMENT}
             )
             client_under_test.run_once(MagicMock("pipeline"), "image")
 
-            assert job._gca_resource.psc_interface_config == {
-                "network_attachment": NETWORK_ATTACHMENT
-            }
+            assert (
+                job._gca_resource.psc_interface_config.network_attachment
+                == NETWORK_ATTACHMENT
+            )
             _, kwargs = job.submit.call_args
             assert kwargs["network"] is None
 
@@ -66,7 +72,7 @@ class TestVertexAIClient(unittest.TestCase):
             client_under_test = self.create_client(
                 network={"network_attachment": NETWORK_ATTACHMENT}
             )
-            with self.assertRaisesRegex(ValueError, "network_attachment"):
+            with self.assertRaisesRegex(ClickException, "network_attachment"):
                 client_under_test.schedule(MagicMock("pipeline"), MagicMock())
             PipelineJobSchedule.list.assert_not_called()
 

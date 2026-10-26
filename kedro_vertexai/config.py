@@ -1,5 +1,6 @@
 import logging
 import os
+import re
 from importlib import import_module
 from inspect import signature
 from typing import Dict, List, Optional
@@ -54,7 +55,7 @@ run_config:
 
     # Or, instead of vpc, the full name of a network attachment to reach the VPC
     # through a Private Service Connect interface
-    # network_attachment: projects/my-project/regions/europe-west2/networkAttachments/my-attachment
+    # network_attachment: projects/my-project/regions/{region}/networkAttachments/my-attachment
 
     # Hosts aliases to be placed in /etc/hosts when pipeline is executed
     # host_aliases:
@@ -238,10 +239,32 @@ class MachineTypeConfig(BaseModel):
         return self
 
 
+NETWORK_ATTACHMENT_PATTERN = re.compile(
+    r"projects/[^/]+/regions/(?P<region>[^/]+)/networkAttachments/[^/]+"
+)
+
+
 class NetworkConfig(BaseModel):
     vpc: Optional[str] = None
     network_attachment: Optional[str] = None
     host_aliases: Optional[List[HostAliasConfig]] = []
+
+    @field_validator("network_attachment")
+    @classmethod
+    def _network_attachment_full_name(cls, value):
+        if value is not None and not NETWORK_ATTACHMENT_PATTERN.fullmatch(value):
+            raise ValueError(
+                "`network.network_attachment` must be the attachment's full name, "
+                "projects/<project>/regions/<region>/networkAttachments/<name>, "
+                f"got '{value}'."
+            )
+        return value
+
+    @property
+    def network_attachment_region(self) -> Optional[str]:
+        if not self.network_attachment:
+            return None
+        return NETWORK_ATTACHMENT_PATTERN.fullmatch(self.network_attachment)["region"]
 
     @model_validator(mode="after")
     def _vpc_or_network_attachment(self):
@@ -382,6 +405,16 @@ class PluginConfig(BaseModel):
     project_id: str
     region: str
     run_config: RunConfig
+
+    @model_validator(mode="after")
+    def _network_attachment_in_region(self):
+        attachment_region = self.run_config.network.network_attachment_region
+        if attachment_region and attachment_region != self.region:
+            raise ValueError(
+                f"`network.network_attachment` is in region '{attachment_region}', but "
+                f"jobs run in '{self.region}': the attachment must be in the jobs' region."
+            )
+        return self
 
     @staticmethod
     def sample_config(**kwargs):

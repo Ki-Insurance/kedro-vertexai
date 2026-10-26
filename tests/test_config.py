@@ -8,7 +8,7 @@ from kedro_vertexai.config import PluginConfig, dynamic_init_class
 from kedro_vertexai.grouping import IdentityNodeGrouper, TagNodeGrouper
 
 NETWORK_ATTACHMENT = (
-    "projects/net-project/regions/europe-west2/networkAttachments/vertex-psc"
+    "projects/net-project/regions/some-region/networkAttachments/vertex-psc"
 )
 
 CONFIG_FULL = """
@@ -277,6 +277,20 @@ run_config:
             "network_attachment": NETWORK_ATTACHMENT,
         }
         with self.assertRaisesRegex(ValidationError, "network_attachment"):
+            PluginConfig.model_validate(obj)
+
+    def test_network_attachment_must_be_full_name(self):
+        obj = yaml.safe_load(CONFIG_MINIMAL)
+        obj["run_config"]["network"] = {"network_attachment": "vertex-psc"}
+        with self.assertRaisesRegex(ValidationError, "full name"):
+            PluginConfig.model_validate(obj)
+
+    def test_network_attachment_must_be_in_jobs_region(self):
+        obj = yaml.safe_load(CONFIG_MINIMAL)
+        obj["run_config"]["network"] = {
+            "network_attachment": NETWORK_ATTACHMENT.replace("some-region", "us-east1")
+        }
+        with self.assertRaisesRegex(ValidationError, "us-east1"):
             PluginConfig.model_validate(obj)
 
     def test_accept_default_vertex_ai_networking_config(self):

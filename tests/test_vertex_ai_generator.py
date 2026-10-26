@@ -25,7 +25,7 @@ def identity(input1: str):
 
 
 NETWORK_ATTACHMENT = (
-    "projects/net-project/regions/europe-west2/networkAttachments/vertex-psc"
+    "projects/net-project/regions/test-region/networkAttachments/vertex-psc"
 )
 
 
@@ -470,6 +470,29 @@ class TestGenerator(unittest.TestCase):
             "network_attachment": NETWORK_ATTACHMENT
         }
         assert params["network"]["defaultValue"] == ""
+
+    @patch("kedro_vertexai.generator.is_mlflow_enabled", return_value=False)
+    def test_should_not_set_psc_interface_for_vpc_custom_job(self, _):
+        # given: no params and no MLflow, so the node's component has no inputs
+        self.create_generator(
+            config={
+                "service_account": "pipelines@test-project.iam.gserviceaccount.com",
+                "network": {"vpc": "projects/123/global/networks/my-vpc"},
+                "machine_types": {"node1": {"machine_type": "n4-highmem-8"}},
+            }
+        )
+
+        # when
+        pipeline_spec = self._compile_pipeline_spec()
+
+        # then
+        params = pipeline_spec["components"]["comp-node1"]["inputDefinitions"][
+            "parameters"
+        ]
+        assert "defaultValue" not in params["psc_interface_config"]
+        assert (
+            params["network"]["defaultValue"] == "projects/123/global/networks/my-vpc"
+        )
 
     def test_should_fail_when_params_clash_with_custom_job_inputs(self):
         self.create_generator(
