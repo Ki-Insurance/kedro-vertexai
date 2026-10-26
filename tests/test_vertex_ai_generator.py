@@ -24,6 +24,11 @@ def identity(input1: str):
     return input1  # pragma: no cover
 
 
+NETWORK_ATTACHMENT = (
+    "projects/net-project/regions/europe-west2/networkAttachments/vertex-psc"
+)
+
+
 class TestGenerator(unittest.TestCase):
     def create_pipeline(self):
         return Pipeline(
@@ -442,6 +447,29 @@ class TestGenerator(unittest.TestCase):
         }
         assert executors["exec-node2"]["container"]["image"] == "unittest-image"
         assert executors["exec-node2"]["container"]["resources"]["cpuLimit"] == 0.1
+
+    @patch("kedro_vertexai.generator.is_mlflow_enabled", return_value=False)
+    def test_should_pass_network_attachment_to_custom_job(self, _):
+        # given
+        self.create_generator(
+            config={
+                "service_account": "pipelines@test-project.iam.gserviceaccount.com",
+                "network": {"network_attachment": NETWORK_ATTACHMENT},
+                "machine_types": {"node1": {"machine_type": "n4-highmem-8"}},
+            }
+        )
+
+        # when
+        pipeline_spec = self._compile_pipeline_spec()
+
+        # then
+        params = pipeline_spec["components"]["comp-node1"]["inputDefinitions"][
+            "parameters"
+        ]
+        assert params["psc_interface_config"]["defaultValue"] == {
+            "network_attachment": NETWORK_ATTACHMENT
+        }
+        assert params["network"]["defaultValue"] == ""
 
     def test_should_fail_when_params_clash_with_custom_job_inputs(self):
         self.create_generator(

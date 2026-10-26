@@ -89,6 +89,11 @@ class VertexAIPipelinesClient:
                 parameter_values=parameters or {},
                 enable_caching=False,
             )
+            # PipelineJob.submit has no argument for PSC-I, so set it on the resource it sends
+            if self.run_config.network.psc_interface_config:
+                job._gca_resource.psc_interface_config = (
+                    self.run_config.network.psc_interface_config
+                )
 
             job.submit(
                 service_account=self.run_config.service_account,
@@ -155,6 +160,11 @@ class VertexAIPipelinesClient:
         :param parameter_values: Kubeflow pipeline parameter values.
         :return:
         """
+        if self.run_config.network.network_attachment:
+            # PipelineJobSchedule copies only some PipelineJob fields; PSC-I isn't one of them
+            raise ValueError(
+                "`network.network_attachment` isn't supported for scheduled runs yet."
+            )
         self._cleanup_old_schedule(display_name=self.run_config.scheduled_run_name)
 
         with NamedTemporaryFile(

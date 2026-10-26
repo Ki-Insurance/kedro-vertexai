@@ -52,6 +52,10 @@ run_config:
     # Name of the vpc to use for running Vertex Pipeline
     # vpc: my-vpc
 
+    # Or, instead of vpc, the full name of a network attachment to reach the VPC
+    # through a Private Service Connect interface
+    # network_attachment: projects/my-project/regions/europe-west2/networkAttachments/my-attachment
+
     # Hosts aliases to be placed in /etc/hosts when pipeline is executed
     # host_aliases:
     #  - ip: 127.0.0.1
@@ -236,7 +240,24 @@ class MachineTypeConfig(BaseModel):
 
 class NetworkConfig(BaseModel):
     vpc: Optional[str] = None
+    network_attachment: Optional[str] = None
     host_aliases: Optional[List[HostAliasConfig]] = []
+
+    @model_validator(mode="after")
+    def _vpc_or_network_attachment(self):
+        if self.vpc and self.network_attachment:
+            raise ValueError(
+                "`network.vpc` and `network.network_attachment` can't both be set: a job is "
+                "either peered with a VPC or attached to it through a Private Service Connect "
+                "interface."
+            )
+        return self
+
+    @property
+    def psc_interface_config(self) -> Optional[dict]:
+        if not self.network_attachment:
+            return None
+        return {"network_attachment": self.network_attachment}
 
 
 class DynamicConfigProviderConfig(BaseModel):

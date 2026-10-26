@@ -277,7 +277,7 @@ machine_types:
 Such nodes run as a Vertex AI
 [CustomJob](https://cloud.google.com/vertex-ai/docs/pipelines/request-gcp-machine-resources), using
 `google_cloud_pipeline_components`' `create_custom_training_job_from_component`, with the run's `service_account` and
-`network.vpc`. Notes:
+`network.vpc` or `network.network_attachment`. Notes:
 
 - `service_account` is required: the CustomJob doesn't inherit the pipeline's service account.
 - A node with a machine type must not also match an explicit `resources` entry or a `node_selectors` entry; pipeline

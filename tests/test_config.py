@@ -7,6 +7,10 @@ from pydantic import ValidationError
 from kedro_vertexai.config import PluginConfig, dynamic_init_class
 from kedro_vertexai.grouping import IdentityNodeGrouper, TagNodeGrouper
 
+NETWORK_ATTACHMENT = (
+    "projects/net-project/regions/europe-west2/networkAttachments/vertex-psc"
+)
+
 CONFIG_FULL = """
 project_id: test-project-id
 region: some-region
@@ -257,9 +261,28 @@ run_config:
         assert str(cfg.run_config.network.host_aliases[0].ip) == "10.10.10.10"
         assert "mlflow.internal" in cfg.run_config.network.host_aliases[0].hostnames
 
+    def test_parse_network_attachment(self):
+        obj = yaml.safe_load(CONFIG_MINIMAL)
+        obj["run_config"]["network"] = {"network_attachment": NETWORK_ATTACHMENT}
+        cfg = PluginConfig.model_validate(obj)
+        assert cfg.run_config.network.vpc is None
+        assert cfg.run_config.network.psc_interface_config == {
+            "network_attachment": NETWORK_ATTACHMENT
+        }
+
+    def test_vpc_and_network_attachment_are_exclusive(self):
+        obj = yaml.safe_load(CONFIG_MINIMAL)
+        obj["run_config"]["network"] = {
+            "vpc": "projects/123/global/networks/my-vpc",
+            "network_attachment": NETWORK_ATTACHMENT,
+        }
+        with self.assertRaisesRegex(ValidationError, "network_attachment"):
+            PluginConfig.model_validate(obj)
+
     def test_accept_default_vertex_ai_networking_config(self):
         cfg = PluginConfig.model_validate(yaml.safe_load(CONFIG_MINIMAL))
         assert cfg.run_config.network.vpc is None
+        assert cfg.run_config.network.psc_interface_config is None
         assert cfg.run_config.network.host_aliases == []
 
     def _machine_types_config(self, **run_config):

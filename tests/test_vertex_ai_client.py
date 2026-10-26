@@ -7,9 +7,13 @@ from kedro_vertexai.client import VertexAIPipelinesClient
 from kedro_vertexai.config import PluginConfig, ScheduleConfig
 from kedro_vertexai.utils import strip_margin
 
+NETWORK_ATTACHMENT = (
+    "projects/net-project/regions/europe-west2/networkAttachments/vertex-psc"
+)
+
 
 class TestVertexAIClient(unittest.TestCase):
-    def create_client(self):
+    def create_client(self, network=None):
         config = PluginConfig.model_validate(
             {
                 "project_id": "PROJECT_ID",
@@ -17,7 +21,7 @@ class TestVertexAIClient(unittest.TestCase):
                 "run_config": {
                     "image": "IMAGE",
                     "root": "BUCKET/PREFIX",
-                    "network": {"vpc": "my-vpc"},
+                    "network": network or {"vpc": "my-vpc"},
                     "experiment_name": "experiment-name",
                     "scheduled_run_name": "scheduled-run",
                 },
@@ -35,6 +39,36 @@ class TestVertexAIClient(unittest.TestCase):
             client_under_test.compile(MagicMock("pipeline"), "image", "some_path")
 
             compiler.compile.assert_called_once()
+
+    def test_should_run_once_with_network_attachment(self):
+        with patch("kedro_vertexai.client.PipelineGenerator"), patch(
+            "kedro_vertexai.client.aip.PipelineJob"
+        ) as PipelineJob, patch("kedro_vertexai.client.Compiler"), patch(
+            "kedro_vertexai.client.aip.init"
+        ):
+            job = PipelineJob.return_value
+
+            client_under_test = self.create_client(
+                network={"network_attachment": NETWORK_ATTACHMENT}
+            )
+            client_under_test.run_once(MagicMock("pipeline"), "image")
+
+            assert job._gca_resource.psc_interface_config == {
+                "network_attachment": NETWORK_ATTACHMENT
+            }
+            _, kwargs = job.submit.call_args
+            assert kwargs["network"] is None
+
+    def test_should_not_schedule_with_network_attachment(self):
+        with patch("kedro_vertexai.client.aip.init"), patch(
+            "kedro_vertexai.client.aip.PipelineJobSchedule"
+        ) as PipelineJobSchedule:
+            client_under_test = self.create_client(
+                network={"network_attachment": NETWORK_ATTACHMENT}
+            )
+            with self.assertRaisesRegex(ValueError, "network_attachment"):
+                client_under_test.schedule(MagicMock("pipeline"), MagicMock())
+            PipelineJobSchedule.list.assert_not_called()
 
     def test_should_list_pipelines(self):
         job1 = MagicMock()
