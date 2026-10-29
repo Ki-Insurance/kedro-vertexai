@@ -274,6 +274,12 @@ machine_types:
     # boot_disk_size_gb: 100              # default: 100
 ```
 
+Instead of a `machine_types` entry, the machine type can be set from the pipeline code by tagging the node (or the
+whole group) `vertexai-machine.<machine type>`, e.g. `vertexai-machine.n4-highmem-8`. The tag carries the value, so
+there is no key to collide with another pipeline's tags. It uses the default boot disk settings; use a `machine_types`
+entry for anything else. An entry for the node name or one of its tags wins over the tag; several different machine
+tags on one node (group) is an error.
+
 Such nodes run as a Vertex AI
 [CustomJob](https://cloud.google.com/vertex-ai/docs/pipelines/request-gcp-machine-resources), using
 `google_cloud_pipeline_components`' `create_custom_training_job_from_component`, with the run's `service_account` and
