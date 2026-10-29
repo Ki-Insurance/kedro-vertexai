@@ -93,6 +93,10 @@ run_config:
     model_training:
       cloud.google.com/gke-accelerator: NVIDIA_TESLA_T4
 
+  # A node (group) can also be put on a machine type straight from its tags, with no entry here:
+  # tag it `vertexai-machine.<machine type>`, e.g. `vertexai-machine.n4-highmem-8`. Entries in
+  # `machine_types` below win over such a tag and are the way to set the boot disk.
+  #
   # Optional section to run selected nodes on an explicit Vertex AI machine type instead of
   # letting Vertex AI pick one from the cpu/memory requests. Keys are node names or tags, as in
   # `resources`, but entries aren't merged: a node-name entry wins, otherwise exactly one tag
@@ -239,6 +243,9 @@ class MachineTypeConfig(BaseModel):
         return self
 
 
+MACHINE_TAG_PREFIX = "vertexai-machine."
+MACHINE_TYPE_PATTERN = re.compile(r"[a-z][a-z0-9]*-[a-z0-9]+(-[a-z0-9]+)*")
+
 NETWORK_ATTACHMENT_PATTERN = re.compile(
     r"projects/[^/]+/regions/(?P<region>[^/]+)/networkAttachments/[^/]+"
 )
@@ -351,7 +358,9 @@ class RunConfig(BaseModel):
         """Explicit machine type for a node (group), or None to keep cpu/memory requests.
 
         Unlike `resources`, entries are not merged: the node-name entry wins, otherwise the
-        single matching tag entry is used whole (several matching tags is an error).
+        single matching tag entry is used whole (several matching tags is an error). Without
+        either, a `vertexai-machine.<machine type>` tag sets the machine type, with default boot
+        disk settings (several different ones is an error).
         """
         tags = tags or set()
         if node in self.machine_types:
@@ -363,9 +372,13 @@ class RunConfig(BaseModel):
                     f"Node '{node}' matches several machine_types tag entries "
                     f"{matching_tags}; add an entry for the node name or keep one tag."
                 )
-            if not matching_tags:
+            key = matching_tags[0] if matching_tags else None
+        if key is not None:
+            machine = self.machine_types[key]
+        else:
+            machine = self._machine_from_tags(node, tags)
+            if machine is None:
                 return None
-            key = matching_tags[0]
         names = {*tags, node}
         conflicts = sorted(
             {n for n in names if n in (self.resources or {}) and n != "__default__"}
@@ -376,7 +389,31 @@ class RunConfig(BaseModel):
                 f"Node '{node}' has a machine type but also matches resources/node_selectors "
                 f"entries {conflicts}; use one or the other."
             )
-        return self.machine_types[key]
+        return machine
+
+    def _machine_from_tags(
+        self, node: str, tags: set
+    ) -> Optional[MachineTypeConfig]:
+        machine_tags = sorted(t for t in tags if t.startswith(MACHINE_TAG_PREFIX))
+        if not machine_tags:
+            return None
+        if len(machine_tags) > 1:
+            raise ValueError(
+                f"Node '{node}' has several machine type tags {machine_tags}; keep one."
+            )
+        machine_type = machine_tags[0][len(MACHINE_TAG_PREFIX) :]
+        if not MACHINE_TYPE_PATTERN.fullmatch(machine_type):
+            raise ValueError(
+                f"Node '{node}' has tag '{machine_tags[0]}', which does not name a machine "
+                f"type (expected e.g. '{MACHINE_TAG_PREFIX}n4-highmem-8')."
+            )
+        if not self.service_account:
+            raise ValueError(
+                f"Node '{node}' has tag '{machine_tags[0]}', which requires "
+                "`service_account`: machine-typed nodes run as a CustomJob that doesn't "
+                "inherit the pipeline's."
+            )
+        return MachineTypeConfig(machine_type=machine_type)
 
     @staticmethod
     def _config_for(

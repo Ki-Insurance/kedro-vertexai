@@ -358,6 +358,45 @@ run_config:
             cfg.machine_type_for("node1", {"tag2", "tag1"})
         assert cfg.machine_type_for("node1", {"tag2"}).machine_type == "n2-highmem-8"
 
+    def test_machine_type_from_tag(self):
+        cfg = self._machine_types_config()
+        machine = cfg.machine_type_for("node1", {"x", "vertexai-machine.n4-highmem-8"})
+        assert machine.machine_type == "n4-highmem-8"
+        assert machine.boot_disk_type == "hyperdisk-balanced"
+        assert machine.boot_disk_size_gb == 100
+
+    def test_machine_type_tag_loses_to_config_entry(self):
+        cfg = self._machine_types_config(
+            machine_types={"node1": {"machine_type": "c2-standard-16"}}
+        )
+        tags = {"vertexai-machine.n4-highmem-8"}
+        assert cfg.machine_type_for("node1", tags).machine_type == "c2-standard-16"
+        assert cfg.machine_type_for("node2", tags).machine_type == "n4-highmem-8"
+
+    def test_machine_type_several_machine_tags_is_an_error(self):
+        cfg = self._machine_types_config()
+        tags = {"vertexai-machine.n4-highmem-8", "vertexai-machine.e2-highmem-2"}
+        with self.assertRaisesRegex(ValueError, "several machine type tags"):
+            cfg.machine_type_for("node1", tags)
+
+    def test_machine_type_tag_must_name_a_machine_type(self):
+        cfg = self._machine_types_config()
+        for bad in ("vertexai-machine.", "vertexai-machine.n4", "vertexai-machine.N4-x"):
+            with self.assertRaisesRegex(ValueError, "does not name a machine type"):
+                cfg.machine_type_for("node1", {bad})
+
+    def test_machine_type_tag_requires_service_account(self):
+        cfg = PluginConfig.model_validate(yaml.safe_load(CONFIG_MINIMAL)).run_config
+        with self.assertRaisesRegex(ValueError, "service_account"):
+            cfg.machine_type_for("node1", {"vertexai-machine.n4-highmem-8"})
+
+    def test_machine_type_tag_conflicts_with_explicit_resources(self):
+        cfg = self._machine_types_config(
+            resources={"__default__": {"cpu": "200m"}, "tag1": {"memory": "64Gi"}}
+        )
+        with self.assertRaisesRegex(ValueError, "tag1"):
+            cfg.machine_type_for("node1", {"tag1", "vertexai-machine.n4-highmem-8"})
+
     def test_machine_types_null_is_empty(self):
         cfg = self._machine_types_config(machine_types=None)
         assert cfg.machine_types == {}
